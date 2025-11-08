@@ -1,6 +1,7 @@
-import 'package:flutter/material.dart';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/material.dart';
+import 'package:logging/logging.dart';
 
 void main() {
   runApp(const MainApp());
@@ -17,10 +18,11 @@ class MainApp extends StatelessWidget {
 
 class MainState extends StatefulWidget {
   @override
-  _MainState createState() => _MainState();
+  State<MainState> createState() => _MainState();
 }
 
 class _MainState extends State<MainState> {
+  final Logger log = Logger('Main');
   String? _filePath;
 
   Future<void> _pickFile() async {
@@ -28,12 +30,10 @@ class _MainState extends State<MainState> {
 
     if (result != null) {
       File file = File(result.files.single.path!);
-	  _filePath = file.path;
-      print(file.path);
-      print(file.stat());
+      _filePath = file.path;
+      log.info(file.path);
     } else {
-      print("canceled input");
-      // User canceled the picker
+      log.info("Cancelled user pick");
     }
   }
 
