@@ -33,6 +33,7 @@ LLM are
 - [ ] Heading, subheading organization - chunk chapters up by their headings
 - [ ] Extraneous styling removal - Most styling is unlikely to be relevant to the LLM other than perhaps bold & italics. Convert the original format into something more compact for the LLM to consume. Commonmark is probably the best target for this since there's A LOT of markdown on the internet
 - [ ] Time to read estimation - impl a time to read algorithm to give a first pass of effort required to read information
+    - Could reference [this meta analysis](https://www.researchgate.net/publication/332380784_How_many_words_do_we_read_per_minute_A_review_and_meta-analysis_of_reading_rate) for how to compute this stuff. Doesn't include code however
 
 Then with the local LLM
 - [ ] Progressive extraction - Similar to how humans take notes extract quotes that have the most pertinent information without generating new sentences and link where they came from
