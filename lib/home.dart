@@ -2,6 +2,8 @@
 import 'dart:math';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'theme.dart';
@@ -13,6 +15,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   late AnimationController _controller;
+  final FocusNode _focusNode = FocusNode();
   
   // Define custom magenta color
   static const Color magentaColor = Color(0xFFFF00FF);
@@ -35,6 +38,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   GraphNode? closestNodeToHover;
   Offset? currentMousePosition;
 
+  // Zoom and pan
+  double _scale = 1.0;
+  Offset _offset = Offset.zero;
+
   @override
   void initState() {
     super.initState();
@@ -47,6 +54,42 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           _updatePhysics();
         });
       })..repeat();
+    
+    // Request focus for keyboard shortcuts
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focusNode.requestFocus();
+    });
+  }
+
+  void _handleKeyEvent(KeyEvent event) {
+    if (event is KeyDownEvent) {
+      final isControlPressed = HardwareKeyboard.instance.isControlPressed || 
+                               HardwareKeyboard.instance.isMetaPressed;
+      
+      if (isControlPressed) {
+        if (event.logicalKey == LogicalKeyboardKey.equal || 
+            event.logicalKey == LogicalKeyboardKey.add ||
+            event.logicalKey == LogicalKeyboardKey.numpadAdd) {
+          // Ctrl + or Ctrl =
+          setState(() {
+            _scale = (_scale * 1.2).clamp(0.5, 3.0);
+          });
+        } else if (event.logicalKey == LogicalKeyboardKey.minus ||
+                   event.logicalKey == LogicalKeyboardKey.numpadSubtract) {
+          // Ctrl -
+          setState(() {
+            _scale = (_scale / 1.2).clamp(0.5, 3.0);
+          });
+        } else if (event.logicalKey == LogicalKeyboardKey.digit0 ||
+                   event.logicalKey == LogicalKeyboardKey.numpad0) {
+          // Ctrl 0 - Reset zoom
+          setState(() {
+            _scale = 1.0;
+            _offset = Offset.zero;
+          });
+        }
+      }
+    }
   }
 
   // Load graph data from storage
@@ -214,6 +257,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   @override
   void dispose() {
     _controller.dispose();
+    _focusNode.dispose();
     super.dispose();
   }
 
@@ -424,243 +468,278 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppTheme.background,
-      appBar: AppBar(
-        title: Text('microlearning'),
-        actions: [
-          IconButton(
-            icon: Icon(Icons.save),
-            onPressed: _saveGraph,
-            tooltip: 'Save Graph',
-          ),
-          IconButton(
-            icon: Icon(Icons.refresh),
-            onPressed: _loadGraph,
-            tooltip: 'Reload Graph',
-          ),
-          IconButton(
-            icon: Icon(Icons.delete_outline),
-            onPressed: _clearGraph,
-            tooltip: 'Clear Graph',
-          ),
-          IconButton(
-            icon: Icon(Icons.palette),
-            onPressed: _showColorSettings,
-            tooltip: 'Color Settings',
-          ),
-        ],
-      ),
-      body: Listener(
-        onPointerMove: (event) {
-          currentMousePosition = event.localPosition;
-          
-          if (isCreatingConnection) {
-            setState(() {
-              connectionEndPosition = event.localPosition;
-              
-              hoveredNode = null;
-              for (var node in nodes) {
-                if (node != connectionStartNode &&
-                    (node.position - event.localPosition).distance < 40) {
-                  hoveredNode = node;
-                  
-                  if (!areNodesConnected(connectionStartNode!.id, node.id)) {
-                    final startNode = connectionStartNode;
-                    final endNode = node;
-                    
-                    connectionStartNode = null;
-                    connectionEndPosition = null;
-                    isCreatingConnection = false;
-                    hoveredNode = null;
-                    
-                    _defineRelationship(startNode!, endNode);
-                  } else {
-                    connectionStartNode = null;
-                    connectionEndPosition = null;
-                    isCreatingConnection = false;
-                    hoveredNode = null;
-                  }
-                  break;
-                }
-              }
-            });
-          } else {
-            // Check if hovering over a connection
-            setState(() {
-              hoveredEdge = null;
-              closestNodeToHover = null;
-              
-              for (var edge in edges) {
-                final fromNode = nodes.firstWhere((n) => n.id == edge.from);
-                final toNode = nodes.firstWhere((n) => n.id == edge.to);
-                
-                double dist = distanceToLineSegment(
-                  event.localPosition,
-                  fromNode.position,
-                  toNode.position,
-                );
-                
-                if (dist < 10) {
-                  hoveredEdge = edge;
-                  
-                  // Find closest node
-                  double distToFrom = (event.localPosition - fromNode.position).distance;
-                  double distToTo = (event.localPosition - toNode.position).distance;
-                  
-                  closestNodeToHover = distToFrom < distToTo ? fromNode : toNode;
-                  break;
-                }
-              }
-            });
-          }
-        },
-        onPointerHover: (event) {
-          currentMousePosition = event.localPosition;
-        },
-        child: MouseRegion(
-          cursor: isPanning 
-              ? SystemMouseCursors.grabbing
-              : (isCreatingConnection 
-                  ? SystemMouseCursors.click 
-                  : (hoveredEdge != null ? SystemMouseCursors.click : SystemMouseCursors.basic)),
-          child: GestureDetector(
-            onPanStart: (details) {
-              bool foundNode = false;
-              for (var node in nodes) {
-                if ((node.position - details.localPosition).distance < 20) {
-                  setState(() {
-                    draggedNode = node;
-                    isPanning = false;
-                  });
-                  foundNode = true;
-                  break;
-                }
-              }
-              
-              if (!foundNode) {
+    return KeyboardListener(
+      focusNode: _focusNode,
+      onKeyEvent: _handleKeyEvent,
+      child: Scaffold(
+        backgroundColor: AppTheme.background,
+        appBar: AppBar(
+          title: Text('microlearning'),
+          actions: [
+            IconButton(
+              icon: Icon(Icons.zoom_in),
+              onPressed: () {
                 setState(() {
-                  isPanning = true;
-                  lastPanPosition = details.localPosition;
+                  _scale = (_scale * 1.2).clamp(0.5, 3.0);
                 });
-              }
-            },
-            onPanUpdate: (details) {
+              },
+              tooltip: 'Zoom In (Ctrl +)',
+            ),
+            IconButton(
+              icon: Icon(Icons.zoom_out),
+              onPressed: () {
+                setState(() {
+                  _scale = (_scale / 1.2).clamp(0.5, 3.0);
+                });
+              },
+              tooltip: 'Zoom Out (Ctrl -)',
+            ),
+            IconButton(
+              icon: Icon(Icons.save),
+              onPressed: _saveGraph,
+              tooltip: 'Save Graph',
+            ),
+            IconButton(
+              icon: Icon(Icons.refresh),
+              onPressed: _loadGraph,
+              tooltip: 'Reload Graph',
+            ),
+            IconButton(
+              icon: Icon(Icons.delete_outline),
+              onPressed: _clearGraph,
+              tooltip: 'Clear Graph',
+            ),
+            IconButton(
+              icon: Icon(Icons.palette),
+              onPressed: _showColorSettings,
+              tooltip: 'Color Settings',
+            ),
+          ],
+        ),
+        body: Listener(
+          onPointerSignal: (pointerSignal) {
+            if (pointerSignal is PointerScrollEvent) {
               setState(() {
-                if (draggedNode != null && !isCreatingConnection) {
-                  Offset newPosition = details.localPosition;
-                  draggedNode!.velocity = newPosition - draggedNode!.position;
-                  draggedNode!.position = newPosition;
-                } else if (isPanning && lastPanPosition != null) {
-                  Offset delta = details.localPosition - lastPanPosition!;
-                  
-                  for (var node in nodes) {
-                    node.position += delta;
-                    node.velocity = Offset.zero;
-                  }
-                  
-                  lastPanPosition = details.localPosition;
+                if (pointerSignal.scrollDelta.dy < 0) {
+                  _scale = (_scale * 1.1).clamp(0.5, 3.0);
+                } else {
+                  _scale = (_scale / 1.1).clamp(0.5, 3.0);
                 }
               });
-            },
-            onPanEnd: (details) {
+            }
+          },
+          onPointerMove: (event) {
+            currentMousePosition = event.localPosition;
+            
+            if (isCreatingConnection) {
               setState(() {
-                draggedNode = null;
-                isPanning = false;
-                lastPanPosition = null;
+                connectionEndPosition = (event.localPosition - _offset) / _scale;
+                
+                hoveredNode = null;
+                for (var node in nodes) {
+                  if (node != connectionStartNode &&
+                      (node.position - ((event.localPosition - _offset) / _scale)).distance < 40) {
+                    hoveredNode = node;
+                    
+                    if (!areNodesConnected(connectionStartNode!.id, node.id)) {
+                      final startNode = connectionStartNode;
+                      final endNode = node;
+                      
+                      connectionStartNode = null;
+                      connectionEndPosition = null;
+                      isCreatingConnection = false;
+                      hoveredNode = null;
+                      
+                      _defineRelationship(startNode!, endNode);
+                    } else {
+                      connectionStartNode = null;
+                      connectionEndPosition = null;
+                      isCreatingConnection = false;
+                      hoveredNode = null;
+                    }
+                    break;
+                  }
+                }
               });
-            },
-            child: CustomPaint(
-              painter: GraphPainter(
-                nodes, 
-                edges, 
-                connectionStartNode, 
-                connectionEndPosition, 
-                hoveredNode,
-                hoveredEdge,
-                closestNodeToHover,
-              ),
-              size: Size.infinite,
-              child: Stack(
-                children: nodes.map((node) {
-                  return Positioned(
-                    left: node.position.dx - 20,
-                    top: node.position.dy - 20,
-                    child: MouseRegion(
-                      cursor: SystemMouseCursors.click,
-                      child: GestureDetector(
-                        onTap: () {
-                          // If hovering over edge and clicking closest node, show notes
-                          if (hoveredEdge != null && node == closestNodeToHover) {
-                            _viewNotes(hoveredEdge!, node);
-                          } else {
-                            _editNode(node);
-                          }
-                        },
-                        onDoubleTap: () {
-                          _editNode(node);
-                        },
-                        onSecondaryTapDown: (details) {
-                          if (nodes.length > 1) {
-                            setState(() {
-                              connectionStartNode = node;
-                              connectionEndPosition = node.position;
-                              isCreatingConnection = true;
-                            });
-                          } else {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Add more nodes to create connections'),
-                                duration: Duration(seconds: 2),
-                              ),
-                            );
-                          }
-                        },
-                        child: Container(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            // Magenta when it's the closest node to hover
-                            color: (node == closestNodeToHover && hoveredEdge != null)
-                                ? magentaColor.withOpacity(0.8)
-                                : (node == hoveredNode)
-                                    ? AppTheme.primary.withOpacity(0.9)
-                                    : (node == connectionStartNode
-                                        ? AppTheme.primary.withOpacity(0.7)
-                                        : (node == draggedNode
-                                            ? AppTheme.primary.withOpacity(0.6)
-                                            : AppTheme.primary.withOpacity(0.3))),
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: (node == closestNodeToHover && hoveredEdge != null)
-                                  ? magentaColor
-                                  : (node == hoveredNode || node == connectionStartNode)
-                                      ? AppTheme.primary
-                                      : AppTheme.primary.withOpacity(0.6),
-                              width: (node == closestNodeToHover || node == hoveredNode || node == connectionStartNode) ? 3 : 2,
-                            ),
-                          ),
-                          child: Center(
-                            child: Text(
-                              node.label,
-                              style: AppTheme.nodeTextStyle,
-                              textAlign: TextAlign.center,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
+            } else {
+              // Check if hovering over a connection
+              setState(() {
+                hoveredEdge = null;
+                closestNodeToHover = null;
+                
+                for (var edge in edges) {
+                  final fromNode = nodes.firstWhere((n) => n.id == edge.from);
+                  final toNode = nodes.firstWhere((n) => n.id == edge.to);
+                  
+                  double dist = distanceToLineSegment(
+                    (event.localPosition - _offset) / _scale,
+                    fromNode.position,
+                    toNode.position,
                   );
-                }).toList(),
+                  
+                  if (dist < 10) {
+                    hoveredEdge = edge;
+                    
+                    // Find closest node
+                    double distToFrom = ((event.localPosition - _offset) / _scale - fromNode.position).distance;
+                    double distToTo = ((event.localPosition - _offset) / _scale - toNode.position).distance;
+                    
+                    closestNodeToHover = distToFrom < distToTo ? fromNode : toNode;
+                    break;
+                  }
+                }
+              });
+            }
+          },
+          onPointerHover: (event) {
+            currentMousePosition = event.localPosition;
+          },
+          child: MouseRegion(
+            cursor: isPanning 
+                ? SystemMouseCursors.grabbing
+                : (isCreatingConnection 
+                    ? SystemMouseCursors.click 
+                    : (hoveredEdge != null ? SystemMouseCursors.click : SystemMouseCursors.basic)),
+            child: GestureDetector(
+              onPanStart: (details) {
+                final localPos = (details.localPosition - _offset) / _scale;
+                bool foundNode = false;
+                for (var node in nodes) {
+                  if ((node.position - localPos).distance < 20) {
+                    setState(() {
+                      draggedNode = node;
+                      isPanning = false;
+                    });
+                    foundNode = true;
+                    break;
+                  }
+                }
+                
+                if (!foundNode) {
+                  setState(() {
+                    isPanning = true;
+                    lastPanPosition = details.localPosition;
+                  });
+                }
+              },
+              onPanUpdate: (details) {
+                setState(() {
+                  if (draggedNode != null && !isCreatingConnection) {
+                    Offset newPosition = (details.localPosition - _offset) / _scale;
+                    draggedNode!.velocity = newPosition - draggedNode!.position;
+                    draggedNode!.position = newPosition;
+                  } else if (isPanning && lastPanPosition != null) {
+                    Offset delta = details.localPosition - lastPanPosition!;
+                    _offset += delta;
+                    lastPanPosition = details.localPosition;
+                  }
+                });
+              },
+              onPanEnd: (details) {
+                setState(() {
+                  draggedNode = null;
+                  isPanning = false;
+                  lastPanPosition = null;
+                });
+              },
+              child: Transform.translate(
+                offset: _offset,
+                child: Transform.scale(
+                  scale: _scale,
+                  child: CustomPaint(
+                    painter: GraphPainter(
+                      nodes, 
+                      edges, 
+                      connectionStartNode, 
+                      connectionEndPosition, 
+                      hoveredNode,
+                      hoveredEdge,
+                      closestNodeToHover,
+                    ),
+                    size: Size.infinite,
+                    child: Stack(
+                      children: nodes.map((node) {
+                        return Positioned(
+                          left: node.position.dx - 20,
+                          top: node.position.dy - 20,
+                          child: MouseRegion(
+                            cursor: SystemMouseCursors.click,
+                            child: GestureDetector(
+                              onTap: () {
+                                // If hovering over edge and clicking closest node, show notes
+                                if (hoveredEdge != null && node == closestNodeToHover) {
+                                  _viewNotes(hoveredEdge!, node);
+                                } else {
+                                  _editNode(node);
+                                }
+                              },
+                              onDoubleTap: () {
+                                _editNode(node);
+                              },
+                              onSecondaryTapDown: (details) {
+                                if (nodes.length > 1) {
+                                  setState(() {
+                                    connectionStartNode = node;
+                                    connectionEndPosition = node.position;
+                                    isCreatingConnection = true;
+                                  });
+                                } else {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('Add more nodes to create connections'),
+                                      duration: Duration(seconds: 2),
+                                    ),
+                                  );
+                                }
+                              },
+                              child: Container(
+                                width: 40,
+                                height: 40,
+                                decoration: BoxDecoration(
+                                  // Magenta when it's the closest node to hover
+                                  color: (node == closestNodeToHover && hoveredEdge != null)
+                                      ? magentaColor.withOpacity(0.8)
+                                      : (node == hoveredNode)
+                                          ? AppTheme.primary.withOpacity(0.9)
+                                          : (node == connectionStartNode
+                                              ? AppTheme.primary.withOpacity(0.7)
+                                              : (node == draggedNode
+                                                  ? AppTheme.primary.withOpacity(0.6)
+                                                  : AppTheme.primary.withOpacity(0.3))),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: (node == closestNodeToHover && hoveredEdge != null)
+                                        ? magentaColor
+                                        : (node == hoveredNode || node == connectionStartNode)
+                                            ? AppTheme.primary
+                                            : AppTheme.primary.withOpacity(0.6),
+                                    width: (node == closestNodeToHover || node == hoveredNode || node == connectionStartNode) ? 3 : 2,
+                                  ),
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    node.label,
+                                    style: AppTheme.nodeTextStyle,
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
         ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _addNode,
-        child: Icon(Icons.add),
-        tooltip: 'Add Node',
+        floatingActionButton: FloatingActionButton(
+          onPressed: _addNode,
+          child: Icon(Icons.add),
+          tooltip: 'Add Node',
+        ),
       ),
     );
   }
