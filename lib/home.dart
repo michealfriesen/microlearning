@@ -1,12 +1,12 @@
 // annie loves making stuff with u guys 
 import 'dart:math';
-import 'package:flutter/material.dart'; // imports 
+import 'package:flutter/material.dart';
+import 'package:flutter_colorpicker/flutter_colorpicker.dart';
+import 'theme.dart';
 
-
-// stateful widgets - a stateful widget is a widget that can change overtime 
 class HomePage extends StatefulWidget {
   @override
-  State<HomePage> createState() => _HomePageState(); // createState() mutable state for this widget 
+  State<HomePage> createState() => _HomePageState();
 }
 
 class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
@@ -24,7 +24,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: Duration(milliseconds: 16), // ~60fps
+      duration: Duration(milliseconds: 16),
     )..addListener(() {
         setState(() {
           _updatePhysics();
@@ -33,15 +33,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   void _updatePhysics() {
-    // Get screen center for centering force
     final Size screenSize = MediaQuery.of(context).size;
     final Offset center = Offset(screenSize.width / 2, screenSize.height / 2);
-    
-    // Physics simulation runs for all nodes, even during dragging!
-    // The dragged node will be repositioned by touch, but other nodes respond to forces
 
     for (int i = 0; i < nodes.length; i++) {
-      // Skip applying physics to the node being dragged (it follows the finger)
       if (nodes[i] == draggedNode) continue;
       
       Offset force = Offset.zero;
@@ -53,33 +48,25 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         double distance = diff.distance;
         
         if (distance < 1) continue;
-        
-        // ┌─────────────────────────────────────────────┐
-        // │ REPULSION: Always active!                   │
-        // │ Gets exponentially stronger as nodes        │
-        // │ approach each other (1/distance²)           │
-        // └─────────────────────────────────────────────┘
+
         double repulsion = 50000 / (distance * distance);
         force -= Offset(diff.dx / distance * repulsion, diff.dy / distance * repulsion);
         
-        // Attraction (Spring Force)
         double targetDistance = 200;
         double attraction = (distance - targetDistance) * 0.09;
         force += Offset(diff.dx / distance * attraction, diff.dy / distance * attraction);
       }
 
-      // Center Force - pulls nodes toward screen center
       Offset toCenter = center - nodes[i].position;
       double centerDistance = toCenter.distance;
       if (centerDistance > 1) {
-        double centerForce = centerDistance * 0.001;  // Weak centering force
+        double centerForce = centerDistance * 0.001;
         force += Offset(toCenter.dx / centerDistance * centerForce, 
                        toCenter.dy / centerDistance * centerForce);
       }
       
-      // Apply force with damping
       nodes[i].velocity += force * 0.02;
-      nodes[i].velocity *= 0.9; // Damping
+      nodes[i].velocity *= 0.9;
       nodes[i].position += nodes[i].velocity;
     }
   }
@@ -90,18 +77,142 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     super.dispose();
   }
 
+  void _showColorSettings() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Color Settings'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Background Color Picker
+                ListTile(
+                  title: Text('Background Color'),
+                  trailing: Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: AppTheme.background,
+                      border: Border.all(color: Colors.grey),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  onTap: () {
+                    _pickColor(
+                      context: context,
+                      currentColor: AppTheme.background,
+                      title: 'Pick Background Color',
+                      onColorChanged: (color) {
+                        setState(() {
+                          AppTheme.updateColors(newBackground: color);
+                        });
+                      },
+                    );
+                  },
+                ),
+                SizedBox(height: 10),
+                // Node Color Picker
+                ListTile(
+                  title: Text('Node Color'),
+                  trailing: Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: AppTheme.primary,
+                      border: Border.all(color: Colors.grey),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  onTap: () {
+                    _pickColor(
+                      context: context,
+                      currentColor: AppTheme.primary,
+                      title: 'Pick Node Color',
+                      onColorChanged: (color) {
+                        setState(() {
+                          AppTheme.updateColors(newPrimary: color);
+                        });
+                      },
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                // Reset to defaults
+                setState(() {
+                  AppTheme.updateColors(
+                    newBackground: Colors.black,
+                    newPrimary: Colors.blue,
+                  );
+                });
+              },
+              child: Text('Reset'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Done'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _pickColor({
+    required BuildContext context,
+    required Color currentColor,
+    required String title,
+    required Function(Color) onColorChanged,
+  }) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text(title),
+          content: SingleChildScrollView(
+            child: ColorPicker(
+              pickerColor: currentColor,
+              onColorChanged: onColorChanged,
+              pickerAreaHeightPercent: 0.8,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Done'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Stretchy Nodes')),
+      backgroundColor: AppTheme.background,
+      appBar: AppBar(
+        title: Text('Stretchy Nodes'),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.palette),
+            onPressed: _showColorSettings,
+            tooltip: 'Color Settings',
+          ),
+        ],
+      ),
       body: GestureDetector(
         onPanStart: (details) {
-          // Find node under touch
           for (var node in nodes) {
-            if ((node.position - details.localPosition).distance < 40) {
+            if ((node.position - details.localPosition).distance < 20) {
               setState(() {
                 draggedNode = node;
-                // Keep the velocity when starting drag for smoother motion
               });
               break;
             }
@@ -110,10 +221,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         onPanUpdate: (details) {
           if (draggedNode != null) {
             setState(() {
-              // Update dragged node position
               Offset newPosition = details.localPosition;
-              
-              // Calculate velocity based on movement (for momentum when released)
               draggedNode!.velocity = newPosition - draggedNode!.position;
               draggedNode!.position = newPosition;
             });
@@ -121,7 +229,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         },
         onPanEnd: (details) {
           setState(() {
-            // Release the node - it will continue with its current velocity
             draggedNode = null;
           });
         },
@@ -138,20 +245,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   child: Container(
                     width: 40,
                     height: 40,
-                    decoration: BoxDecoration(
-                      color: node == draggedNode 
-                          ? Colors.blue.shade300  // Highlight when dragging
-                          : Colors.blue.shade100,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: node == draggedNode ? Colors.blue.shade700 : Colors.blue, 
-                        width: node == draggedNode ? 3 : 2,
-                      ),
+                    decoration: AppTheme.nodeDecoration(
+                      isDragged: node == draggedNode,
                     ),
                     child: Center(
                       child: Text(
                         node.label,
-                        style: TextStyle(fontSize: 14),
+                        style: AppTheme.nodeTextStyle,
                         textAlign: TextAlign.center,
                       ),
                     ),
@@ -249,10 +349,9 @@ class GraphPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Colors.blue.withOpacity(0.3)
+      ..color = AppTheme.primary.withOpacity(0.3)
       ..strokeWidth = 2;
 
-    // Draw connections between nodes
     for (int i = 0; i < nodes.length; i++) {
       for (int j = i + 1; j < nodes.length; j++) {
         canvas.drawLine(nodes[i].position, nodes[j].position, paint);

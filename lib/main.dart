@@ -2,7 +2,8 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
-import 'home.dart'; // Import your home.dart file
+import 'home.dart';
+import 'theme.dart';
 
 void main() {
   // initialize logging 
@@ -21,6 +22,7 @@ class MainApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false, 
+      theme: AppTheme.darkTheme,
       home: MainTabNavigator(),
     );
   }
