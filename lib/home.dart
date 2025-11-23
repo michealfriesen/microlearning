@@ -13,6 +13,26 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
+class GraphState {
+  final List<GraphNode> nodes;
+  final List<GraphEdge> edges;
+  
+  GraphState(this.nodes, this.edges);
+  
+  GraphState copy() {
+    return GraphState(
+      nodes.map((n) => GraphNode(
+        id: n.id,
+        label: n.label,
+        note: n.note,
+        position: n.position,
+        velocity: n.velocity,
+      )).toList(),
+      edges.map((e) => GraphEdge(from: e.from, to: e.to, note: e.note)).toList(),
+    );
+  }
+}
+
 class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   late AnimationController _controller;
   final FocusNode _focusNode = FocusNode();
@@ -42,6 +62,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   double _scale = 1.0;
   Offset _offset = Offset.zero;
 
+  // Undo/Redo
+  List<GraphState> _history = [];
+  int _historyIndex = -1;
+
   @override
   void initState() {
     super.initState();
@@ -61,32 +85,77 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     });
   }
 
+  void _saveState() {
+    // Remove any states after current index (if we're not at the end)
+    if (_historyIndex < _history.length - 1) {
+      _history = _history.sublist(0, _historyIndex + 1);
+    }
+    
+    // Add new state
+    _history.add(GraphState(nodes, edges).copy());
+    _historyIndex++;
+    
+    // Limit history to 50 states
+    if (_history.length > 50) {
+      _history.removeAt(0);
+      _historyIndex--;
+    }
+  }
+
+  void _undo() {
+    if (_historyIndex > 0) {
+      _historyIndex--;
+      final state = _history[_historyIndex];
+      setState(() {
+        nodes = state.copy().nodes;
+        edges = state.copy().edges;
+      });
+    }
+  }
+
+  void _redo() {
+    if (_historyIndex < _history.length - 1) {
+      _historyIndex++;
+      final state = _history[_historyIndex];
+      setState(() {
+        nodes = state.copy().nodes;
+        edges = state.copy().edges;
+      });
+    }
+  }
+
   void _handleKeyEvent(KeyEvent event) {
     if (event is KeyDownEvent) {
       final isControlPressed = HardwareKeyboard.instance.isControlPressed || 
                                HardwareKeyboard.instance.isMetaPressed;
+      final isShiftPressed = HardwareKeyboard.instance.isShiftPressed;
       
       if (isControlPressed) {
+        // Zoom shortcuts
         if (event.logicalKey == LogicalKeyboardKey.equal || 
             event.logicalKey == LogicalKeyboardKey.add ||
             event.logicalKey == LogicalKeyboardKey.numpadAdd) {
-          // Ctrl + or Ctrl =
           setState(() {
             _scale = (_scale * 1.2).clamp(0.5, 3.0);
           });
         } else if (event.logicalKey == LogicalKeyboardKey.minus ||
                    event.logicalKey == LogicalKeyboardKey.numpadSubtract) {
-          // Ctrl -
           setState(() {
             _scale = (_scale / 1.2).clamp(0.5, 3.0);
           });
         } else if (event.logicalKey == LogicalKeyboardKey.digit0 ||
                    event.logicalKey == LogicalKeyboardKey.numpad0) {
-          // Ctrl 0 - Reset zoom
           setState(() {
             _scale = 1.0;
             _offset = Offset.zero;
           });
+        }
+        // Undo/Redo shortcuts
+        else if (event.logicalKey == LogicalKeyboardKey.keyZ && !isShiftPressed) {
+          _undo();
+        } else if ((event.logicalKey == LogicalKeyboardKey.keyZ && isShiftPressed) ||
+                   event.logicalKey == LogicalKeyboardKey.keyY) {
+          _redo();
         }
       }
     }
@@ -108,6 +177,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           edges = edgesList.map((json) => GraphEdge.fromJson(json)).toList();
         });
         
+        // Save initial state for undo/redo
+        _saveState();
+        
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Graph loaded successfully')),
         );
@@ -122,6 +194,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             GraphEdge(from: '1', to: '2', note: 'hello relates to world because they form a common phrase'),
           ];
         });
+        _saveState();
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -173,6 +246,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 setState(() {
                   nodes.clear();
                   edges.clear();
+                  _history.clear();
+                  _historyIndex = -1;
                 });
                 
                 Navigator.pop(context);
@@ -398,6 +473,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     to: toNode.id,
                     note: '',
                   ));
+                  _saveState();
                 });
                 Navigator.pop(context);
               },
@@ -411,6 +487,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     to: toNode.id,
                     note: controller.text,
                   ));
+                  _saveState();
                 });
                 Navigator.pop(context);
               },
@@ -476,6 +553,16 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         appBar: AppBar(
           title: Text('microlearning'),
           actions: [
+            IconButton(
+              icon: Icon(Icons.undo),
+              onPressed: _historyIndex > 0 ? _undo : null,
+              tooltip: 'Undo (Ctrl+Z)',
+            ),
+            IconButton(
+              icon: Icon(Icons.redo),
+              onPressed: _historyIndex < _history.length - 1 ? _redo : null,
+              tooltip: 'Redo (Ctrl+Y)',
+            ),
             IconButton(
               icon: Icon(Icons.zoom_in),
               onPressed: () {
@@ -636,6 +723,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 });
               },
               onPanEnd: (details) {
+                if (draggedNode != null) {
+                  _saveState();
+                }
                 setState(() {
                   draggedNode = null;
                   isPanning = false;
@@ -755,6 +845,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           random.nextDouble() * 300 + 200,
         ),
       ));
+      _saveState();
     });
   }
 
@@ -798,6 +889,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 setState(() {
                   node.label = nameController.text;
                   node.note = noteController.text;
+                  _saveState();
                 });
                 Navigator.pop(context);
               },
@@ -810,6 +902,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     nodes.remove(node);
                     edges.removeWhere((edge) => 
                       edge.from == node.id || edge.to == node.id);
+                    _saveState();
                   });
                   Navigator.pop(context);
                 },
