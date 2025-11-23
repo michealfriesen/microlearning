@@ -18,6 +18,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   ];
 
   GraphNode? draggedNode;
+  bool isPanning = false;
+  Offset? lastPanPosition;
 
   @override
   void initState() {
@@ -38,6 +40,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
     for (int i = 0; i < nodes.length; i++) {
       if (nodes[i] == draggedNode) continue;
+      if (isPanning) continue;
       
       Offset force = Offset.zero;
       
@@ -87,7 +90,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Background Color Picker
                 ListTile(
                   title: Text('Background Color'),
                   trailing: Container(
@@ -113,7 +115,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   },
                 ),
                 SizedBox(height: 10),
-                // Node Color Picker
                 ListTile(
                   title: Text('Node Color'),
                   trailing: Container(
@@ -144,7 +145,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           actions: [
             TextButton(
               onPressed: () {
-                // Reset to defaults
                 setState(() {
                   AppTheme.updateColors(
                     newBackground: Colors.black,
@@ -207,58 +207,92 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           ),
         ],
       ),
-      body: GestureDetector(
-        onPanStart: (details) {
-          for (var node in nodes) {
-            if ((node.position - details.localPosition).distance < 20) {
-              setState(() {
-                draggedNode = node;
-              });
-              break;
+      body: MouseRegion(
+        cursor: isPanning 
+            ? SystemMouseCursors.grabbing  // Closed hand when dragging
+            : SystemMouseCursors.basic,     // Default arrow when hovering
+        child: GestureDetector(
+          onPanStart: (details) {
+            // Check if clicking on a node
+            bool foundNode = false;
+            for (var node in nodes) {
+              if ((node.position - details.localPosition).distance < 20) {
+                setState(() {
+                  draggedNode = node;
+                  isPanning = false;
+                });
+                foundNode = true;
+                break;
+              }
             }
-          }
-        },
-        onPanUpdate: (details) {
-          if (draggedNode != null) {
+            
+            // If not clicking on a node, start panning mode
+            if (!foundNode) {
+              setState(() {
+                isPanning = true;
+                lastPanPosition = details.localPosition;
+              });
+            }
+          },
+          onPanUpdate: (details) {
             setState(() {
-              Offset newPosition = details.localPosition;
-              draggedNode!.velocity = newPosition - draggedNode!.position;
-              draggedNode!.position = newPosition;
+              if (draggedNode != null) {
+                // dragging a single node
+                Offset newPosition = details.localPosition;
+                draggedNode!.velocity = newPosition - draggedNode!.position;
+                draggedNode!.position = newPosition;
+              } else if (isPanning && lastPanPosition != null) {
+                // panning ALL nodes
+                Offset delta = details.localPosition - lastPanPosition!;
+                
+                // move all nodes by the drag delta
+                for (var node in nodes) {
+                  node.position += delta;
+                  node.velocity = Offset.zero; // reset velocity while panning
+                }
+                
+                lastPanPosition = details.localPosition;
+              }
             });
-          }
-        },
-        onPanEnd: (details) {
-          setState(() {
-            draggedNode = null;
-          });
-        },
-        child: CustomPaint(
-          painter: GraphPainter(nodes),
-          size: Size.infinite,
-          child: Stack(
-            children: nodes.map((node) {
-              return Positioned(
-                left: node.position.dx - 20,
-                top: node.position.dy - 20,
-                child: GestureDetector(
-                  onTap: () => _editNode(node),
-                  child: Container(
-                    width: 40,
-                    height: 40,
-                    decoration: AppTheme.nodeDecoration(
-                      isDragged: node == draggedNode,
-                    ),
-                    child: Center(
-                      child: Text(
-                        node.label,
-                        style: AppTheme.nodeTextStyle,
-                        textAlign: TextAlign.center,
+          },
+          onPanEnd: (details) {
+            setState(() {
+              draggedNode = null;
+              isPanning = false;
+              lastPanPosition = null;
+            });
+          },
+          child: CustomPaint(
+            painter: GraphPainter(nodes),
+            size: Size.infinite,
+            child: Stack(
+              children: nodes.map((node) {
+                return Positioned(
+                  left: node.position.dx - 20,
+                  top: node.position.dy - 20,
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.click, // Pointer when hovering nodes
+                    child: GestureDetector(
+                      onTap: () => _editNode(node),
+                      child: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: AppTheme.nodeDecoration(
+                          isDragged: node == draggedNode,
+                        ),
+                        child: Center(
+                          child: Text(
+                            node.label,
+                            style: AppTheme.nodeTextStyle,
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
                       ),
                     ),
                   ),
-                ),
-              );
-            }).toList(),
+                );
+              }).toList(),
+            ),
           ),
         ),
       ),
