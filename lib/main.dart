@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
+import 'home.dart'; // Import your home.dart file
 
 void main() {
   // initialize logging 
@@ -18,17 +19,66 @@ class MainApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(home: MainState());
+    return MaterialApp(
+      debugShowCheckedModeBanner: false, 
+      home: MainTabNavigator(),
+    );
   }
 }
 
-class MainState extends StatefulWidget {
+class MainTabNavigator extends StatefulWidget {
   @override
-  State<MainState> createState() => _MainState();
+  State<MainTabNavigator> createState() => _MainTabNavigatorState();
 }
 
-class _MainState extends State<MainState> {
-  final Logger log = Logger('Main');
+class _MainTabNavigatorState extends State<MainTabNavigator> {
+  int _currentIndex = 0;
+
+  // List of screens for each tab
+  final List<Widget> _screens = [
+    HomePage(), // Your stretchy nodes screen
+    FilePickerScreen(), // File picker screen
+    ProfileScreen(), // Placeholder for third tab
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: _screens[_currentIndex],
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _currentIndex,
+        onTap: (index) {
+          setState(() {
+            _currentIndex = index;
+          });
+        },
+        items: [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.bubble_chart),
+            label: 'Graph',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.upload_file),
+            label: 'Files',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.person),
+            label: 'Profile',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// Move your file picker logic to a separate screen
+class FilePickerScreen extends StatefulWidget {
+  @override
+  State<FilePickerScreen> createState() => _FilePickerScreenState();
+}
+
+class _FilePickerScreenState extends State<FilePickerScreen> {
+  final Logger log = Logger('FilePicker');
   String? _filePath;
   String? _fileName;
 
@@ -53,8 +103,11 @@ class _MainState extends State<MainState> {
   }
   
   @override
-  Widget build(BuildContext ctx) {
+  Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(
+        title: Text('File Picker'),
+      ),
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center, 
@@ -95,6 +148,21 @@ class _MainState extends State<MainState> {
           ],  
         ),   
       ),     
+    );
+  }
+}
+
+// Placeholder for the third tab
+class ProfileScreen extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Profile'),
+      ),
+      body: Center(
+        child: Text('Profile Screen - Add your content here!'),
+      ),
     );
   }
 }
