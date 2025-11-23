@@ -1,7 +1,9 @@
 // annie loves making stuff with u guys 
 import 'dart:math';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'theme.dart';
 
 class HomePage extends StatefulWidget {
@@ -15,14 +17,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   // Define custom magenta color
   static const Color magentaColor = Color(0xFFFF00FF);
   
-  List<GraphNode> nodes = [
-    GraphNode(id: '1', label: 'hello', note: 'This is about greetings', position: Offset(400, 400)),
-    GraphNode(id: '2', label: 'world', note: 'This is about the world', position: Offset(400, 300)),
-  ];
-
-  List<GraphEdge> edges = [
-    GraphEdge(from: '1', to: '2', note: 'hello relates to world because they form a common phrase'),
-  ];
+  List<GraphNode> nodes = [];
+  List<GraphEdge> edges = [];
 
   GraphNode? draggedNode;
   bool isPanning = false;
@@ -42,6 +38,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    _loadGraph();
     _controller = AnimationController(
       vsync: this,
       duration: Duration(milliseconds: 16),
@@ -50,6 +47,102 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           _updatePhysics();
         });
       })..repeat();
+  }
+
+  // Load graph data from storage
+  Future<void> _loadGraph() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final nodesJson = prefs.getString('nodes');
+      final edgesJson = prefs.getString('edges');
+      
+      if (nodesJson != null && edgesJson != null) {
+        final List<dynamic> nodesList = json.decode(nodesJson);
+        final List<dynamic> edgesList = json.decode(edgesJson);
+        
+        setState(() {
+          nodes = nodesList.map((json) => GraphNode.fromJson(json)).toList();
+          edges = edgesList.map((json) => GraphEdge.fromJson(json)).toList();
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Graph loaded successfully')),
+        );
+      } else {
+        // Load default graph if no saved data
+        setState(() {
+          nodes = [
+            GraphNode(id: '1', label: 'hello', note: 'This is about greetings', position: Offset(400, 400)),
+            GraphNode(id: '2', label: 'world', note: 'This is about the world', position: Offset(400, 300)),
+          ];
+          edges = [
+            GraphEdge(from: '1', to: '2', note: 'hello relates to world because they form a common phrase'),
+          ];
+        });
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to load graph: $e')),
+      );
+    }
+  }
+
+  // Save graph data to storage
+  Future<void> _saveGraph() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      final nodesJson = json.encode(nodes.map((node) => node.toJson()).toList());
+      final edgesJson = json.encode(edges.map((edge) => edge.toJson()).toList());
+      
+      await prefs.setString('nodes', nodesJson);
+      await prefs.setString('edges', edgesJson);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Graph saved successfully')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to save graph: $e')),
+      );
+    }
+  }
+
+  // Clear all data
+  Future<void> _clearGraph() async {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('Clear Graph?'),
+          content: Text('This will delete all nodes and connections. This action cannot be undone.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () async {
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.remove('nodes');
+                await prefs.remove('edges');
+                
+                setState(() {
+                  nodes.clear();
+                  edges.clear();
+                });
+                
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Graph cleared')),
+                );
+              },
+              child: Text('Clear', style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   bool areNodesConnected(String id1, String id2) {
@@ -336,6 +429,21 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       appBar: AppBar(
         title: Text('microlearning'),
         actions: [
+          IconButton(
+            icon: Icon(Icons.save),
+            onPressed: _saveGraph,
+            tooltip: 'Save Graph',
+          ),
+          IconButton(
+            icon: Icon(Icons.refresh),
+            onPressed: _loadGraph,
+            tooltip: 'Reload Graph',
+          ),
+          IconButton(
+            icon: Icon(Icons.delete_outline),
+            onPressed: _clearGraph,
+            tooltip: 'Clear Graph',
+          ),
           IconButton(
             icon: Icon(Icons.palette),
             onPressed: _showColorSettings,
@@ -649,6 +757,26 @@ class GraphNode {
     required this.position,
     this.velocity = Offset.zero,
   });
+
+  // Convert to JSON
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'label': label,
+      'note': note,
+      'position': {'dx': position.dx, 'dy': position.dy},
+    };
+  }
+
+  // Create from JSON
+  factory GraphNode.fromJson(Map<String, dynamic> json) {
+    return GraphNode(
+      id: json['id'],
+      label: json['label'],
+      note: json['note'],
+      position: Offset(json['position']['dx'], json['position']['dy']),
+    );
+  }
 }
 
 class GraphEdge {
@@ -661,6 +789,24 @@ class GraphEdge {
     required this.to,
     this.note = '',
   });
+
+  // Convert to JSON
+  Map<String, dynamic> toJson() {
+    return {
+      'from': from,
+      'to': to,
+      'note': note,
+    };
+  }
+
+  // Create from JSON
+  factory GraphEdge.fromJson(Map<String, dynamic> json) {
+    return GraphEdge(
+      from: json['from'],
+      to: json['to'],
+      note: json['note'] ?? '',
+    );
+  }
 }
 
 class GraphPainter extends CustomPainter {
