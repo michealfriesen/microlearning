@@ -17,9 +17,19 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     GraphNode(id: '2', label: '', position: Offset(400, 300)),
   ];
 
+  List<GraphEdge> edges = [
+    GraphEdge(from: '1', to: '2'),
+  ];
+
   GraphNode? draggedNode;
   bool isPanning = false;
   Offset? lastPanPosition;
+  
+  // For creating connections
+  GraphNode? connectionStartNode;
+  Offset? connectionEndPosition;
+  bool isCreatingConnection = false;
+  GraphNode? hoveredNode; 
 
   @override
   void initState() {
@@ -32,6 +42,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           _updatePhysics();
         });
       })..repeat();
+  }
+
+  bool areNodesConnected(String id1, String id2) {
+    return edges.any((edge) => 
+      (edge.from == id1 && edge.to == id2) || 
+      (edge.from == id2 && edge.to == id1)
+    );
   }
 
   void _updatePhysics() {
@@ -55,9 +72,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         double repulsion = 50000 / (distance * distance);
         force -= Offset(diff.dx / distance * repulsion, diff.dy / distance * repulsion);
         
-        double targetDistance = 200;
-        double attraction = (distance - targetDistance) * 0.09;
-        force += Offset(diff.dx / distance * attraction, diff.dy / distance * attraction);
+        if (areNodesConnected(nodes[i].id, nodes[j].id)) {
+          double targetDistance = 200;
+          double attraction = (distance - targetDistance) * 0.09;
+          force += Offset(diff.dx / distance * attraction, diff.dy / distance * attraction);
+        }
       }
 
       Offset toCenter = center - nodes[i].position;
@@ -198,7 +217,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     return Scaffold(
       backgroundColor: AppTheme.background,
       appBar: AppBar(
-        title: Text('Stretchy Nodes'),
+        title: Text('microlearning'),
         actions: [
           IconButton(
             icon: Icon(Icons.palette),
@@ -207,91 +226,162 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           ),
         ],
       ),
-      body: MouseRegion(
-        cursor: isPanning 
-            ? SystemMouseCursors.grabbing  // Closed hand when dragging
-            : SystemMouseCursors.basic,     // Default arrow when hovering
-        child: GestureDetector(
-          onPanStart: (details) {
-            // Check if clicking on a node
-            bool foundNode = false;
-            for (var node in nodes) {
-              if ((node.position - details.localPosition).distance < 20) {
-                setState(() {
-                  draggedNode = node;
-                  isPanning = false;
-                });
-                foundNode = true;
-                break;
-              }
-            }
-            
-            // If not clicking on a node, start panning mode
-            if (!foundNode) {
-              setState(() {
-                isPanning = true;
-                lastPanPosition = details.localPosition;
-              });
-            }
-          },
-          onPanUpdate: (details) {
+      body: Listener(
+        onPointerMove: (event) {
+          if (isCreatingConnection) {
             setState(() {
-              if (draggedNode != null) {
-                // dragging a single node
-                Offset newPosition = details.localPosition;
-                draggedNode!.velocity = newPosition - draggedNode!.position;
-                draggedNode!.position = newPosition;
-              } else if (isPanning && lastPanPosition != null) {
-                // panning ALL nodes
-                Offset delta = details.localPosition - lastPanPosition!;
-                
-                // move all nodes by the drag delta
-                for (var node in nodes) {
-                  node.position += delta;
-                  node.velocity = Offset.zero; // reset velocity while panning
+              connectionEndPosition = event.localPosition;
+              
+              // 👇 Check if hovering over a node
+              hoveredNode = null;
+              for (var node in nodes) {
+                if (node != connectionStartNode &&
+                    (node.position - event.localPosition).distance < 40) {
+                  hoveredNode = node;
+                  
+                  // 👇 Auto-connect when line touches node!
+                  if (!areNodesConnected(connectionStartNode!.id, node.id)) {
+                    edges.add(GraphEdge(
+                      from: connectionStartNode!.id,
+                      to: node.id,
+                    ));
+                    // Reset connection state
+                    connectionStartNode = null;
+                    connectionEndPosition = null;
+                    isCreatingConnection = false;
+                    hoveredNode = null;
+                  } else {
+                    // Already connected, just cancel
+                    connectionStartNode = null;
+                    connectionEndPosition = null;
+                    isCreatingConnection = false;
+                    hoveredNode = null;
+                  }
+                  break;
                 }
-                
-                lastPanPosition = details.localPosition;
               }
             });
-          },
-          onPanEnd: (details) {
-            setState(() {
-              draggedNode = null;
-              isPanning = false;
-              lastPanPosition = null;
-            });
-          },
-          child: CustomPaint(
-            painter: GraphPainter(nodes),
-            size: Size.infinite,
-            child: Stack(
-              children: nodes.map((node) {
-                return Positioned(
-                  left: node.position.dx - 20,
-                  top: node.position.dy - 20,
-                  child: MouseRegion(
-                    cursor: SystemMouseCursors.click, // Pointer when hovering nodes
-                    child: GestureDetector(
-                      onTap: () => _editNode(node),
-                      child: Container(
-                        width: 40,
-                        height: 40,
-                        decoration: AppTheme.nodeDecoration(
-                          isDragged: node == draggedNode,
-                        ),
-                        child: Center(
-                          child: Text(
-                            node.label,
-                            style: AppTheme.nodeTextStyle,
-                            textAlign: TextAlign.center,
+          }
+        },
+        child: MouseRegion(
+          cursor: isPanning 
+              ? SystemMouseCursors.grabbing
+              : (isCreatingConnection 
+                  ? SystemMouseCursors.click 
+                  : SystemMouseCursors.basic),
+          child: GestureDetector(
+            onPanStart: (details) {
+              bool foundNode = false;
+              for (var node in nodes) {
+                if ((node.position - details.localPosition).distance < 20) {
+                  setState(() {
+                    draggedNode = node;
+                    isPanning = false;
+                  });
+                  foundNode = true;
+                  break;
+                }
+              }
+              
+              if (!foundNode) {
+                setState(() {
+                  isPanning = true;
+                  lastPanPosition = details.localPosition;
+                });
+              }
+            },
+            onPanUpdate: (details) {
+              setState(() {
+                if (draggedNode != null && !isCreatingConnection) {
+                  Offset newPosition = details.localPosition;
+                  draggedNode!.velocity = newPosition - draggedNode!.position;
+                  draggedNode!.position = newPosition;
+                } else if (isPanning && lastPanPosition != null) {
+                  Offset delta = details.localPosition - lastPanPosition!;
+                  
+                  for (var node in nodes) {
+                    node.position += delta;
+                    node.velocity = Offset.zero;
+                  }
+                  
+                  lastPanPosition = details.localPosition;
+                }
+              });
+            },
+            onPanEnd: (details) {
+              setState(() {
+                draggedNode = null;
+                isPanning = false;
+                lastPanPosition = null;
+              });
+            },
+            child: CustomPaint(
+              painter: GraphPainter(nodes, edges, connectionStartNode, connectionEndPosition, hoveredNode),
+              size: Size.infinite,
+              child: Stack(
+                children: nodes.map((node) {
+                  return Positioned(
+                    left: node.position.dx - 20,
+                    top: node.position.dy - 20,
+                    child: MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: GestureDetector(
+                        // 👇 Double-click to EDIT node
+                        onDoubleTap: () {
+                          _editNode(node);
+                        },
+                        // 👇 Right-click to START connection (only if other nodes exist)
+                        onSecondaryTapDown: (details) {
+                          // 👇 Check if there are other nodes to connect to
+                          if (nodes.length > 1) {
+                            setState(() {
+                              connectionStartNode = node;
+                              connectionEndPosition = node.position;
+                              isCreatingConnection = true;
+                            });
+                          } else {
+                            // Show message that you need more nodes
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Add more nodes to create connections'),
+                                duration: Duration(seconds: 2),
+                              ),
+                            );
+                          }
+                        },
+                        child: Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            // 👇 Visual feedback for connection mode
+                            color: (node == hoveredNode)
+                                ? AppTheme.primary.withOpacity(0.9) // Bright when hovering
+                                : (node == connectionStartNode
+                                    ? AppTheme.primary.withOpacity(0.7) // Medium when starting connection
+                                    : (node == draggedNode
+                                        ? AppTheme.primary.withOpacity(0.6) // Medium when dragging
+                                        : AppTheme.primary.withOpacity(0.3))), // Normal
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: (node == hoveredNode || node == connectionStartNode)
+                                  ? AppTheme.primary
+                                  : AppTheme.primary.withOpacity(0.6),
+                              width: (node == hoveredNode || node == connectionStartNode) ? 3 : 2,
+                            ),
+                          ),
+                          child: Center(
+                            child: Text(
+                              node.label,
+                              style: AppTheme.nodeTextStyle,
+                              textAlign: TextAlign.center,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                );
-              }).toList(),
+                  );
+                }).toList(),
+              ),
             ),
           ),
         ),
@@ -327,7 +417,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           title: Text('Edit Node'),
           content: TextField(
             controller: controller,
-            decoration: InputDecoration(hintText: 'Enter text'),
+            decoration: InputDecoration(hintText: 'Enter subject'),
             autofocus: true,
           ),
           actions: [
@@ -349,6 +439,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 onPressed: () {
                   setState(() {
                     nodes.remove(node);
+                    edges.removeWhere((edge) => 
+                      edge.from == node.id || edge.to == node.id);
                   });
                   Navigator.pop(context);
                 },
@@ -375,10 +467,21 @@ class GraphNode {
   });
 }
 
+class GraphEdge {
+  String from;
+  String to;
+
+  GraphEdge({required this.from, required this.to});
+}
+
 class GraphPainter extends CustomPainter {
   final List<GraphNode> nodes;
+  final List<GraphEdge> edges;
+  final GraphNode? connectionStartNode;
+  final Offset? connectionEndPosition;
+  final GraphNode? hoveredNode;
 
-  GraphPainter(this.nodes);
+  GraphPainter(this.nodes, this.edges, this.connectionStartNode, this.connectionEndPosition, this.hoveredNode);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -386,10 +489,21 @@ class GraphPainter extends CustomPainter {
       ..color = AppTheme.primary.withOpacity(0.3)
       ..strokeWidth = 2;
 
-    for (int i = 0; i < nodes.length; i++) {
-      for (int j = i + 1; j < nodes.length; j++) {
-        canvas.drawLine(nodes[i].position, nodes[j].position, paint);
-      }
+    for (var edge in edges) {
+      final fromNode = nodes.firstWhere((n) => n.id == edge.from);
+      final toNode = nodes.firstWhere((n) => n.id == edge.to);
+      canvas.drawLine(fromNode.position, toNode.position, paint);
+    }
+
+    if (connectionStartNode != null && connectionEndPosition != null) {
+      final previewPaint = Paint()
+        ..color = AppTheme.primary.withOpacity(0.6)
+        ..strokeWidth = 2
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round;
+      
+      final endPos = hoveredNode?.position ?? connectionEndPosition!;
+      canvas.drawLine(connectionStartNode!.position, endPos, previewPaint);
     }
   }
 
