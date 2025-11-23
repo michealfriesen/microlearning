@@ -12,24 +12,32 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   late AnimationController _controller;
   
+  // Define custom magenta color
+  static const Color magentaColor = Color(0xFFFF00FF);
+  
   List<GraphNode> nodes = [
-    GraphNode(id: '1', label: 'hello', position: Offset(400, 400)),
-    GraphNode(id: '2', label: '', position: Offset(400, 300)),
+    GraphNode(id: '1', label: 'hello', note: 'This is about greetings', position: Offset(400, 400)),
+    GraphNode(id: '2', label: 'world', note: 'This is about the world', position: Offset(400, 300)),
   ];
 
   List<GraphEdge> edges = [
-    GraphEdge(from: '1', to: '2', note: 'initial connection'),
+    GraphEdge(from: '1', to: '2', note: 'hello relates to world because they form a common phrase'),
   ];
 
   GraphNode? draggedNode;
   bool isPanning = false;
   Offset? lastPanPosition;
   
-  // for creating connections
+  // For creating connections
   GraphNode? connectionStartNode;
   Offset? connectionEndPosition;
   bool isCreatingConnection = false;
-  GraphNode? hoveredNode; 
+  GraphNode? hoveredNode;
+  
+  // For viewing connection notes
+  GraphEdge? hoveredEdge;
+  GraphNode? closestNodeToHover;
+  Offset? currentMousePosition;
 
   @override
   void initState() {
@@ -49,6 +57,23 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       (edge.from == id1 && edge.to == id2) || 
       (edge.from == id2 && edge.to == id1)
     );
+  }
+
+  // Calculate distance from point to line segment
+  double distanceToLineSegment(Offset point, Offset lineStart, Offset lineEnd) {
+    final double lengthSquared = pow(lineEnd.dx - lineStart.dx, 2) + pow(lineEnd.dy - lineStart.dy, 2).toDouble();
+    if (lengthSquared == 0) return (point - lineStart).distance;
+    
+    double t = ((point.dx - lineStart.dx) * (lineEnd.dx - lineStart.dx) + 
+                (point.dy - lineStart.dy) * (lineEnd.dy - lineStart.dy)) / lengthSquared;
+    t = max(0, min(1, t));
+    
+    final Offset projection = Offset(
+      lineStart.dx + t * (lineEnd.dx - lineStart.dx),
+      lineStart.dy + t * (lineEnd.dy - lineStart.dy),
+    );
+    
+    return (point - projection).distance;
   }
 
   void _updatePhysics() {
@@ -212,7 +237,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
-  // dialog to add relationship note
   void _defineRelationship(GraphNode fromNode, GraphNode toNode) {
     showDialog(
       context: context,
@@ -235,7 +259,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   edges.add(GraphEdge(
                     from: fromNode.id,
                     to: toNode.id,
-                    note: '', // No note
+                    note: '',
                   ));
                 });
                 Navigator.pop(context);
@@ -261,6 +285,50 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
+  // View connection and node notes
+  void _viewNotes(GraphEdge edge, GraphNode node) {
+    final fromNode = nodes.firstWhere((n) => n.id == edge.from);
+    final toNode = nodes.firstWhere((n) => n.id == edge.to);
+    
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('${fromNode.label} ↔ ${toNode.label}'),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (edge.note.isNotEmpty) ...[
+                  Text(
+                    'Connection Note:',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  SizedBox(height: 8),
+                  Text(edge.note),
+                  SizedBox(height: 16),
+                ],
+                Text(
+                  'Node: ${node.label}',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                SizedBox(height: 8),
+                Text(node.note ?? 'No note'),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -277,6 +345,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       ),
       body: Listener(
         onPointerMove: (event) {
+          currentMousePosition = event.localPosition;
+          
           if (isCreatingConnection) {
             setState(() {
               connectionEndPosition = event.localPosition;
@@ -291,13 +361,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     final startNode = connectionStartNode;
                     final endNode = node;
                     
-                    // Reset connection state
                     connectionStartNode = null;
                     connectionEndPosition = null;
                     isCreatingConnection = false;
                     hoveredNode = null;
                     
-                    // Show relationship note dialog
                     _defineRelationship(startNode!, endNode);
                   } else {
                     connectionStartNode = null;
@@ -309,14 +377,45 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 }
               }
             });
+          } else {
+            // Check if hovering over a connection
+            setState(() {
+              hoveredEdge = null;
+              closestNodeToHover = null;
+              
+              for (var edge in edges) {
+                final fromNode = nodes.firstWhere((n) => n.id == edge.from);
+                final toNode = nodes.firstWhere((n) => n.id == edge.to);
+                
+                double dist = distanceToLineSegment(
+                  event.localPosition,
+                  fromNode.position,
+                  toNode.position,
+                );
+                
+                if (dist < 10) {
+                  hoveredEdge = edge;
+                  
+                  // Find closest node
+                  double distToFrom = (event.localPosition - fromNode.position).distance;
+                  double distToTo = (event.localPosition - toNode.position).distance;
+                  
+                  closestNodeToHover = distToFrom < distToTo ? fromNode : toNode;
+                  break;
+                }
+              }
+            });
           }
+        },
+        onPointerHover: (event) {
+          currentMousePosition = event.localPosition;
         },
         child: MouseRegion(
           cursor: isPanning 
               ? SystemMouseCursors.grabbing
               : (isCreatingConnection 
                   ? SystemMouseCursors.click 
-                  : SystemMouseCursors.basic),
+                  : (hoveredEdge != null ? SystemMouseCursors.click : SystemMouseCursors.basic)),
           child: GestureDetector(
             onPanStart: (details) {
               bool foundNode = false;
@@ -364,7 +463,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               });
             },
             child: CustomPaint(
-              painter: GraphPainter(nodes, edges, connectionStartNode, connectionEndPosition, hoveredNode),
+              painter: GraphPainter(
+                nodes, 
+                edges, 
+                connectionStartNode, 
+                connectionEndPosition, 
+                hoveredNode,
+                hoveredEdge,
+                closestNodeToHover,
+              ),
               size: Size.infinite,
               child: Stack(
                 children: nodes.map((node) {
@@ -374,6 +481,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     child: MouseRegion(
                       cursor: SystemMouseCursors.click,
                       child: GestureDetector(
+                        onTap: () {
+                          // If hovering over edge and clicking closest node, show notes
+                          if (hoveredEdge != null && node == closestNodeToHover) {
+                            _viewNotes(hoveredEdge!, node);
+                          } else {
+                            _editNode(node);
+                          }
+                        },
                         onDoubleTap: () {
                           _editNode(node);
                         },
@@ -397,19 +512,24 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                           width: 40,
                           height: 40,
                           decoration: BoxDecoration(
-                            color: (node == hoveredNode)
-                                ? AppTheme.primary.withOpacity(0.9)
-                                : (node == connectionStartNode
-                                    ? AppTheme.primary.withOpacity(0.7)
-                                    : (node == draggedNode
-                                        ? AppTheme.primary.withOpacity(0.6)
-                                        : AppTheme.primary.withOpacity(0.3))),
+                            // Magenta when it's the closest node to hover
+                            color: (node == closestNodeToHover && hoveredEdge != null)
+                                ? magentaColor.withOpacity(0.8)
+                                : (node == hoveredNode)
+                                    ? AppTheme.primary.withOpacity(0.9)
+                                    : (node == connectionStartNode
+                                        ? AppTheme.primary.withOpacity(0.7)
+                                        : (node == draggedNode
+                                            ? AppTheme.primary.withOpacity(0.6)
+                                            : AppTheme.primary.withOpacity(0.3))),
                             shape: BoxShape.circle,
                             border: Border.all(
-                              color: (node == hoveredNode || node == connectionStartNode)
-                                  ? AppTheme.primary
-                                  : AppTheme.primary.withOpacity(0.6),
-                              width: (node == hoveredNode || node == connectionStartNode) ? 3 : 2,
+                              color: (node == closestNodeToHover && hoveredEdge != null)
+                                  ? magentaColor
+                                  : (node == hoveredNode || node == connectionStartNode)
+                                      ? AppTheme.primary
+                                      : AppTheme.primary.withOpacity(0.6),
+                              width: (node == closestNodeToHover || node == hoveredNode || node == connectionStartNode) ? 3 : 2,
                             ),
                           ),
                           child: Center(
@@ -534,7 +654,7 @@ class GraphNode {
 class GraphEdge {
   String from;
   String to;
-  String note; // stores relationship note
+  String note;
 
   GraphEdge({
     required this.from,
@@ -549,23 +669,37 @@ class GraphPainter extends CustomPainter {
   final GraphNode? connectionStartNode;
   final Offset? connectionEndPosition;
   final GraphNode? hoveredNode;
+  final GraphEdge? hoveredEdge;
+  final GraphNode? closestNodeToHover;
 
-  GraphPainter(this.nodes, this.edges, this.connectionStartNode, this.connectionEndPosition, this.hoveredNode);
+  GraphPainter(
+    this.nodes, 
+    this.edges, 
+    this.connectionStartNode, 
+    this.connectionEndPosition, 
+    this.hoveredNode,
+    this.hoveredEdge,
+    this.closestNodeToHover,
+  );
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = AppTheme.primary.withOpacity(0.3)
-      ..strokeWidth = 2;
-
-    // 👇 Draw edges WITHOUT labels
+    const Color magentaColor = Color(0xFFFF00FF);
+    
     for (var edge in edges) {
       final fromNode = nodes.firstWhere((n) => n.id == edge.from);
       final toNode = nodes.firstWhere((n) => n.id == edge.to);
+      
+      // Magenta if hovered, otherwise normal
+      final paint = Paint()
+        ..color = (edge == hoveredEdge) 
+            ? magentaColor.withOpacity(0.7)
+            : AppTheme.primary.withOpacity(0.3)
+        ..strokeWidth = (edge == hoveredEdge) ? 3 : 2;
+      
       canvas.drawLine(fromNode.position, toNode.position, paint);
     }
 
-    // Draw connection preview
     if (connectionStartNode != null && connectionEndPosition != null) {
       final previewPaint = Paint()
         ..color = AppTheme.primary.withOpacity(0.6)
