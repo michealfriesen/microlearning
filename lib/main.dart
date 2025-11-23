@@ -36,11 +36,11 @@ class MainTabNavigator extends StatefulWidget {
 class _MainTabNavigatorState extends State<MainTabNavigator> {
   int _currentIndex = 0;
 
-  // List of screens for each tab
+  // list of screens for each tab
   final List<Widget> _screens = [
-    HomePage(), // Your stretchy nodes screen
-    FilePickerScreen(), // File picker screen
-    ProfileScreen(), // Placeholder for third tab
+    HomePage(), // stretchy nodes screen
+    FilePickerScreen(), // file picker screen
+    ProfileScreen(), // placeholder for third tab
   ];
 
   @override
@@ -73,7 +73,7 @@ class _MainTabNavigatorState extends State<MainTabNavigator> {
   }
 }
 
-// Move your file picker logic to a separate screen
+// move file picker logic to a separate screen
 class FilePickerScreen extends StatefulWidget {
   @override
   State<FilePickerScreen> createState() => _FilePickerScreenState();
