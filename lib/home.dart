@@ -18,14 +18,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   ];
 
   List<GraphEdge> edges = [
-    GraphEdge(from: '1', to: '2'),
+    GraphEdge(from: '1', to: '2', note: 'initial connection'),
   ];
 
   GraphNode? draggedNode;
   bool isPanning = false;
   Offset? lastPanPosition;
   
-  // For creating connections
+  // for creating connections
   GraphNode? connectionStartNode;
   Offset? connectionEndPosition;
   bool isCreatingConnection = false;
@@ -212,6 +212,55 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
+  // dialog to add relationship note
+  void _defineRelationship(GraphNode fromNode, GraphNode toNode) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        TextEditingController controller = TextEditingController();
+        return AlertDialog(
+          content: TextField(
+            controller: controller,
+            decoration: InputDecoration(
+              hintText: 'How are these related? (e.g., music relates to coding because of pattern-based thinking)',
+              border: OutlineInputBorder(),
+            ),
+            maxLines: 4,
+            autofocus: true,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                setState(() {
+                  edges.add(GraphEdge(
+                    from: fromNode.id,
+                    to: toNode.id,
+                    note: '', // No note
+                  ));
+                });
+                Navigator.pop(context);
+              },
+              child: Text('Skip'),
+            ),
+            TextButton(
+              onPressed: () {
+                setState(() {
+                  edges.add(GraphEdge(
+                    from: fromNode.id,
+                    to: toNode.id,
+                    note: controller.text,
+                  ));
+                });
+                Navigator.pop(context);
+              },
+              child: Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -232,26 +281,25 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             setState(() {
               connectionEndPosition = event.localPosition;
               
-              // 👇 Check if hovering over a node
               hoveredNode = null;
               for (var node in nodes) {
                 if (node != connectionStartNode &&
                     (node.position - event.localPosition).distance < 40) {
                   hoveredNode = node;
                   
-                  // 👇 Auto-connect when line touches node!
                   if (!areNodesConnected(connectionStartNode!.id, node.id)) {
-                    edges.add(GraphEdge(
-                      from: connectionStartNode!.id,
-                      to: node.id,
-                    ));
+                    final startNode = connectionStartNode;
+                    final endNode = node;
+                    
                     // Reset connection state
                     connectionStartNode = null;
                     connectionEndPosition = null;
                     isCreatingConnection = false;
                     hoveredNode = null;
+                    
+                    // Show relationship note dialog
+                    _defineRelationship(startNode!, endNode);
                   } else {
-                    // Already connected, just cancel
                     connectionStartNode = null;
                     connectionEndPosition = null;
                     isCreatingConnection = false;
@@ -326,13 +374,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     child: MouseRegion(
                       cursor: SystemMouseCursors.click,
                       child: GestureDetector(
-                        // 👇 Double-click to EDIT node
                         onDoubleTap: () {
                           _editNode(node);
                         },
-                        // 👇 Right-click to START connection (only if other nodes exist)
                         onSecondaryTapDown: (details) {
-                          // 👇 Check if there are other nodes to connect to
                           if (nodes.length > 1) {
                             setState(() {
                               connectionStartNode = node;
@@ -340,7 +385,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                               isCreatingConnection = true;
                             });
                           } else {
-                            // Show message that you need more nodes
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
                                 content: Text('Add more nodes to create connections'),
@@ -353,14 +397,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                           width: 40,
                           height: 40,
                           decoration: BoxDecoration(
-                            // 👇 Visual feedback for connection mode
                             color: (node == hoveredNode)
-                                ? AppTheme.primary.withOpacity(0.9) // Bright when hovering
+                                ? AppTheme.primary.withOpacity(0.9)
                                 : (node == connectionStartNode
-                                    ? AppTheme.primary.withOpacity(0.7) // Medium when starting connection
+                                    ? AppTheme.primary.withOpacity(0.7)
                                     : (node == draggedNode
-                                        ? AppTheme.primary.withOpacity(0.6) // Medium when dragging
-                                        : AppTheme.primary.withOpacity(0.3))), // Normal
+                                        ? AppTheme.primary.withOpacity(0.6)
+                                        : AppTheme.primary.withOpacity(0.3))),
                             shape: BoxShape.circle,
                             border: Border.all(
                               color: (node == hoveredNode || node == connectionStartNode)
@@ -412,13 +455,31 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     showDialog(
       context: context,
       builder: (context) {
-        TextEditingController controller = TextEditingController(text: node.label);
+        TextEditingController nameController = TextEditingController(text: node.label);
+        TextEditingController noteController = TextEditingController(text: node.note ?? '');
+        
         return AlertDialog(
-          title: Text('Edit Node'),
-          content: TextField(
-            controller: controller,
-            decoration: InputDecoration(hintText: 'Enter subject'),
-            autofocus: true,
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: InputDecoration(
+                  hintText: 'Title/Name',
+                  border: OutlineInputBorder(),
+                ),
+                autofocus: true,
+              ),
+              SizedBox(height: 16),
+              TextField(
+                controller: noteController,
+                decoration: InputDecoration(
+                  hintText: 'Note',
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 3,
+              ),
+            ],
           ),
           actions: [
             TextButton(
@@ -428,7 +489,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             TextButton(
               onPressed: () {
                 setState(() {
-                  node.label = controller.text;
+                  node.label = nameController.text;
+                  node.note = noteController.text;
                 });
                 Navigator.pop(context);
               },
@@ -456,12 +518,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 class GraphNode {
   String id;
   String label;
+  String? note;
   Offset position;
   Offset velocity;
 
   GraphNode({
     required this.id,
     required this.label,
+    this.note,
     required this.position,
     this.velocity = Offset.zero,
   });
@@ -470,8 +534,13 @@ class GraphNode {
 class GraphEdge {
   String from;
   String to;
+  String note; // stores relationship note
 
-  GraphEdge({required this.from, required this.to});
+  GraphEdge({
+    required this.from,
+    required this.to,
+    this.note = '',
+  });
 }
 
 class GraphPainter extends CustomPainter {
@@ -489,12 +558,14 @@ class GraphPainter extends CustomPainter {
       ..color = AppTheme.primary.withOpacity(0.3)
       ..strokeWidth = 2;
 
+    // 👇 Draw edges WITHOUT labels
     for (var edge in edges) {
       final fromNode = nodes.firstWhere((n) => n.id == edge.from);
       final toNode = nodes.firstWhere((n) => n.id == edge.to);
       canvas.drawLine(fromNode.position, toNode.position, paint);
     }
 
+    // Draw connection preview
     if (connectionStartNode != null && connectionEndPosition != null) {
       final previewPaint = Paint()
         ..color = AppTheme.primary.withOpacity(0.6)
